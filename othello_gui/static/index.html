@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Othello GUI</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="motion.css">
+<script>
+  // apply a saved theme before first paint to avoid a flash
+  try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-disc"></span>
+    <h1>Othello</h1>
+    <span class="brand-sub" id="engine-name">with Edax</span>
+  </div>
+  <div class="topbar-right">
+    <div class="status" id="status" aria-live="polite">
+      <span class="dot" id="status-dot"></span>
+      <span id="status-text">connecting…</span>
+    </div>
+    <button class="btn secondary icon" id="theme-toggle" title="Switch light / dark theme" aria-label="Switch theme">◐</button>
+  </div>
+</header>
+
+<main class="layout">
+  <!-- ───────────────────────── Board ───────────────────────── -->
+  <section class="board-column">
+    <div class="scoreline">
+      <div class="score-box">
+        <span class="turn-disc black"></span>
+        <span class="t-score score" id="score-black">2</span>
+        <span class="t-label" id="who-black">You</span>
+      </div>
+      <div class="turn" id="turn">Black to move</div>
+      <div class="score-box">
+        <span class="t-label" id="who-white">Edax</span>
+        <span class="t-score score" id="score-white">2</span>
+        <span class="turn-disc white"></span>
+      </div>
+    </div>
+    <div class="opening-info" id="opening-info"></div>
+
+    <div class="board-wrap">
+      <div class="coords cols" id="coords-cols"></div>
+      <div class="coords rows" id="coords-rows"></div>
+      <div class="board" id="board" data-turn="black" role="grid" aria-label="Othello board"></div>
+    </div>
+
+    <div class="nav">
+      <div class="btn-row">
+        <button class="btn secondary small icon" id="nav-first" title="First position (Home)">⏮</button>
+        <button class="btn secondary small icon" id="nav-prev" title="Previous move (←)">◀</button>
+        <span class="nav-pos" id="nav-pos">0 / 0</span>
+        <button class="btn secondary small icon" id="nav-next" title="Next move (→)">▶</button>
+        <button class="btn secondary small icon" id="nav-last" title="Last position (End)">⏭</button>
+      </div>
+      <span class="spacer"></span>
+      <button class="btn secondary small" id="btn-undo" title="Take back your last move">Undo</button>
+      <label class="setting inline">
+        <input type="checkbox" class="switch" id="hints-on" checked>
+        <span>Hints</span>
+        <select class="select small" id="hints-n" title="How many moves to show">
+          <option>1</option><option>2</option><option>3</option><option selected>4</option><option>6</option><option>8</option><option>12</option>
+        </select>
+      </label>
+    </div>
+    <div class="keys">↓ ↑ cycle moves clockwise / counter-clockwise · ⏎ play · ← → step through the game · H hints on/off</div>
+  </section>
+
+  <!-- ───────────────────────── Side panel ───────────────────────── -->
+  <aside class="sidebar">
+    <section class="card">
+      <span class="t-label">New game</span>
+      <div class="fields">
+        <div class="field"><label for="ng-black">Black</label>
+          <select class="select" id="ng-black"><option value="human">Human</option><option value="edax">Edax</option></select></div>
+        <div class="field"><label for="ng-white">White</label>
+          <select class="select" id="ng-white"><option value="human">Human</option><option value="edax" selected>Edax</option></select></div>
+        <div class="field"><label for="ng-level">Level</label>
+          <input class="input" type="number" id="ng-level" min="1" max="60" value="8" title="Search depth in plies. 1–5 casual, 6–9 strong club, 10–14 master, 15+ superhuman"></div>
+        <div class="field"><label for="ng-variety">Variety</label>
+          <select class="select" id="ng-variety" title="Edax picks randomly among moves within this many discs of the best">
+            <option value="0">Always best</option><option value="1">±1 disc</option><option value="2">±2 discs</option><option value="4">±4 discs</option><option value="8">±8 discs</option>
+          </select></div>
+        <div class="field wide"><label for="ng-opening">Opening</label>
+          <select class="select" id="ng-opening" title="Start from the first moves of a random real tournament game">
+            <option value="0">Standard start</option><option value="4">Thor game, 4 plies</option><option value="8" selected>Thor game, 8 plies</option><option value="12">Thor game, 12 plies</option><option value="16">Thor game, 16 plies</option>
+          </select></div>
+      </div>
+      <div class="btn-row"><button class="btn" id="btn-new">Start game</button></div>
+    </section>
+
+    <section class="card">
+      <span class="t-label">Evaluation <span class="muted">disc difference, black's view</span></span>
+      <svg class="eval-graph" id="graph" viewBox="0 0 400 130" preserveAspectRatio="none" role="img" aria-label="Evaluation over the game"></svg>
+      <div class="btn-row">
+        <button class="btn secondary small" id="btn-analyze">Analyze game</button>
+        <label class="inline-field">at level <input class="input small" type="number" id="an-level" min="1" max="60" value="12"></label>
+        <span class="t-small muted" id="an-progress"></span>
+      </div>
+    </section>
+
+    <section class="card">
+      <span class="t-label">Moves <span class="muted" id="move-count"></span><span class="opening-name" id="opening-name"></span></span>
+      <div class="moves" id="movelist"></div>
+    </section>
+
+    <section class="card" id="thor-card">
+      <span class="t-label">Thor database <span class="muted" id="thor-meta"></span></span>
+      <div class="thor-summary" id="thor-summary"></div>
+      <table class="hints thor-moves" id="thor-moves">
+        <thead><tr><th>Move</th><th class="eval">Games</th><th>Results</th><th class="eval" title="Black wins">Black</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="fields">
+        <div class="field"><label for="thor-year">From year</label>
+          <input class="input" type="number" id="thor-year" min="1977" max="2100" placeholder="any"></div>
+        <div class="field"><label for="thor-player">Player</label>
+          <input class="input" type="text" id="thor-player" placeholder="any" autocomplete="off" spellcheck="false"></div>
+      </div>
+      <div class="thor-games-head t-small muted" id="thor-games-head"></div>
+      <div class="thor-games" id="thor-games"></div>
+    </section>
+
+    <section class="card">
+      <span class="t-label">Hints <span class="muted" id="hints-meta"></span></span>
+      <table class="hints" id="hints-table">
+        <thead><tr><th>Move</th><th class="eval">Eval</th><th>Depth</th><th>Line</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <span class="t-label">Transcript</span>
+      <textarea class="input" id="transcript" rows="2" spellcheck="false" placeholder="F5d6C3d3C4 … or paste a GGF record"></textarea>
+      <div class="btn-row">
+        <button class="btn secondary small" id="btn-load">Load</button>
+        <button class="btn secondary small" id="btn-copy">Copy current</button>
+        <button class="btn secondary small" id="btn-save" title="Download this game as a GGF file">Save file</button>
+        <button class="btn secondary small" id="btn-open" title="Open a .ggf or text transcript file">Open file</button>
+        <input type="file" id="file-open" accept=".ggf,.txt,.sgf,text/plain" hidden>
+      </div>
+    </section>
+  </aside>
+</main>
+
+<div class="toast" id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>

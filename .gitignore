@@ -1,0 +1,25 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# generated next to the WTHOR files, never commit
+thor-index*.npz
+
+# fetched by scripts/setup_edax.py: platform binaries, weights, books
+engine/*
+!engine/README.md
+!engine/edax-macos-fixes.patch
+!engine/darwin-arm64/
+engine/darwin-arm64/*
+!engine/darwin-arm64/mEdax
+
+# user-supplied Thor database (download from https://www.ffothello.org) and its index
+wthor/
+thor-index*.npz

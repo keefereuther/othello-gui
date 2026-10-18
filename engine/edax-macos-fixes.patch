@@ -1,0 +1,64 @@
+diff --git a/src/util.c b/src/util.c
+index 3e83292..14f73cd 100644
+--- a/src/util.c
++++ b/src/util.c
+@@ -283,9 +283,10 @@ typedef struct C11Function {
+  */
+ static void* posix_function(void *arg) {
+     C11Function *c11_function = arg;
+-    c11_function->r = c11_function->function(c11_function->arg);
++    intptr_t r = c11_function->function(c11_function->arg);
++    free(c11_function); // allocated in thrd_create
+ 
+-    return arg;
++    return (void*) r;
+ }
+ 
+ /**
+@@ -298,11 +299,17 @@ static void* posix_function(void *arg) {
+  */
+ int thrd_create (thrd_t *thread, thrd_start_t function, void *arg)
+ {
+-	C11Function c11_func;
+-	c11_func.function = function;
+-	c11_func.arg = arg;
+-
+-	return pthread_create(thread, NULL, posix_function, &c11_func);
++	// heap-allocated: a stack local would be gone before the new thread reads it
++	C11Function *c11_func = (C11Function*) malloc(sizeof (C11Function));
++	if (c11_func == NULL) return thrd_nomem;
++	c11_func->function = function;
++	c11_func->arg = arg;
++
++	if (pthread_create(thread, NULL, posix_function, c11_func) != 0) {
++		free(c11_func);
++		return thrd_error;
++	}
++	return thrd_success;
+ }
+ 
+ /**
+@@ -323,7 +330,10 @@ int thrd_detach(thrd_t thread) {
+  * @return thrd_success on success an error otherwise.
+  */
+ int thrd_join(thrd_t thread, int *res) {
+-	return pthread_join(thread, (void **) &res);
++	void *ret = NULL;
++	if (pthread_join(thread, &ret) != 0) return thrd_error;
++	if (res) *res = (int) (intptr_t) ret;
++	return thrd_success;
+ }
+ 
+ /**
+diff --git a/src/util.h b/src/util.h
+index f6b49ea..b9c9af1 100755
+--- a/src/util.h
++++ b/src/util.h
+@@ -21,6 +21,7 @@
+ #include <stdint.h>
+ #include <stdlib.h>
+ #include <string.h>
++#include <time.h>
+ 
+ struct Board;
+ struct Move;

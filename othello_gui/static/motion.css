@@ -1,0 +1,78 @@
+/* ==========================================================================
+   motion.css · Othello GUI
+   Motion layer. Load after style.css. Timing tokens live in tokens.css.
+   Deliberately calmer than the reference: no infinite pulses, nothing blocks
+   input, and history navigation never animates (the JS rebuilds instantly).
+   ========================================================================== */
+
+/* ---------- Discs -------------------------------------------------------- */
+.disc { transition: transform var(--t-ui) var(--ease-out); will-change: transform; }
+
+/* placement: drops in from slightly above and settles */
+.disc.drop { animation: disc-drop var(--t-drop) var(--ease-spring) both; }
+@keyframes disc-drop {
+  from { transform: translateY(-10px) scale(1.15); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+
+/* flip preview: hovering a legal square rings the discs that would turn
+   (no distortion of the disc itself) */
+.disc.black.preview { box-shadow: inset 0 0 0 2px var(--disc-black-rim), 0 0 0 3px var(--focus), 0 3px 0 rgba(0, 0, 0, 0.35); }
+.disc.white.preview { box-shadow: inset 0 0 0 2px var(--disc-white-rim), 0 0 0 3px var(--focus), 0 3px 0 rgba(0, 0, 0, 0.25); }
+.disc.preview::before {
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  background: var(--mover); opacity: 0.28;
+}
+
+/* the flip itself runs in JS so the colour swaps at the midpoint */
+
+/* ---------- Legal moves & hover ghost ----------------------------------- */
+.square.legal::before {
+  transition: width var(--t-ui) var(--ease-spring),
+              height var(--t-ui) var(--ease-spring),
+              opacity var(--t-ui) var(--ease-out),
+              background-color var(--t-ui) var(--ease-out);
+}
+@media (hover: hover) {
+  .square.legal:hover::before { width: 78%; height: 78%; background: var(--mover); opacity: 0.45; }
+  .square.legal:hover:has(.hint)::before { opacity: 0.35; }
+}
+
+/* ---------- Last move marker -------------------------------------------- */
+.square.last .disc::after { animation: mark-in var(--t-ui) var(--ease-spring) both; animation-delay: var(--t-drop); }
+@keyframes mark-in { from { transform: scale(0); } to { transform: scale(1); } }
+
+/* ---------- Hints -------------------------------------------------------- */
+.square .hint { animation: hint-in var(--t-ui) var(--ease-out) both; }
+@keyframes hint-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+.square.peek { transition: box-shadow var(--t-ui) var(--ease-out); }
+
+/* ---------- Scores & status --------------------------------------------- */
+.score.bump { animation: bump 280ms var(--ease-spring); }
+@keyframes bump { 40% { transform: scale(1.18); } }
+.turn.pass-nudge { animation: nudge 320ms var(--ease-out); }
+@keyframes nudge { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 60% { transform: translateX(4px); } }
+
+/* ---------- Buttons ------------------------------------------------------ */
+.btn { transition: transform var(--t-tap) var(--ease-out), box-shadow var(--t-tap) var(--ease-out); }
+.btn:active { transform: translateY(3px); }
+.btn.small:active { transform: translateY(2px); }
+
+/* ---------- Move list ---------------------------------------------------- */
+.move-row.new { animation: row-in var(--t-ui) var(--ease-out) both; }
+@keyframes row-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.move-row .mv { transition: background-color var(--t-ui) var(--ease-out); }
+
+/* ---------- Game over ---------------------------------------------------- */
+.disc.wave { animation: wave 480ms var(--ease-spring) both; animation-delay: var(--delay, 0ms); }
+@keyframes wave { 40% { transform: translateY(-8px) scale(1.08); } }
+
+/* ---------- Reduced motion ---------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+  }
+}

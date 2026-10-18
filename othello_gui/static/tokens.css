@@ -1,0 +1,98 @@
+/* ==========================================================================
+   tokens.css · Othello GUI
+   Single source of truth for color, type, spacing, shape and motion.
+   Based on the "paper and tile" style system v1.0 (../../../othello-style),
+   with these deliberate changes:
+     - accent moved off red/teal so red means "discs lost" and nothing else
+     - grid lines made quiet (decorative, not a 3:1 mark)
+     - best hint is a filled pill, hints scale with the board
+     - normal capitalisation everywhere, single typeface (Rubik, self-hosted)
+     - motion about half as long, never blocking input
+   Light is the default; dark follows the OS unless <html data-theme="light|dark">.
+   ========================================================================== */
+
+@font-face { font-family: "Rubik"; font-weight: 300 900; font-display: swap; src: url("fonts/rubik-variable.woff2") format("woff2"); }
+
+:root {
+  /* ---- Surfaces & text ---------------------------------------------- */
+  --bg:          #f3eee4;
+  --card:        #fffdf8;
+  --line:        #e2d9c8;
+  --card-border: var(--line);
+  --text:        #2b2a33;   /* 13.9 on card */
+  --muted:       #686470;   /*  5.7 on card */
+
+  /* ---- Accent & semantics ------------------------------------------- */
+  --accent:      #4b58c8;   /* indigo, 5.8 on card: neither "loss" red nor "gain" teal */
+  --accent-text: #ffffff;   /* 5.9 on accent */
+  --accent-edge: color-mix(in srgb, var(--accent) 70%, black);
+  --good:        #1b766d;   /* 5.4 on card: positive evaluations */
+  --bad:         #b83d28;   /* 5.5 on card: negative evaluations, disc losses */
+
+  /* ---- Board ----------------------------------------------------------- */
+  --board:          #285e56;
+  --board-line:     #35706a;   /* quiet: squares are already delineated by discs */
+  --hint-best:      #ffd166;   /* pill fill, 5.2 on board */
+  --hint-best-text: #2b2a33;   /* 9.7 on the pill */
+  --hint-other:     #d7e6e2;   /* 5.8 on board */
+  --disc-black:     #1c1c22;
+  --disc-black-rim: #a7adb6;   /* 3.3 on board: carries the black disc's edge */
+  --disc-white:     #f7f4ec;   /* 6.8 on board */
+  --disc-white-rim: #c9c2b4;
+  --last-on-black:  var(--hint-best);
+  --last-on-white:  #4b58c8;   /* fixed indigo: the disc is white in both themes (5.4) */
+  --legal-dot:      color-mix(in srgb, var(--disc-white) 55%, var(--board));
+  --focus:          #ffffff;   /* keyboard selection ring, 7.4 on board */
+  --axis:           #8a847c;
+
+  /* ---- Shape ----------------------------------------------------------- */
+  --radius: 14px;
+  --radius-sm: 8px;
+  --shadow: 0 4px 0 rgba(43, 42, 51, 0.10);   /* solid edge, zero blur */
+
+  /* ---- Type ------------------------------------------------------------ */
+  --font-ui: "Rubik", ui-rounded, "SF Pro Rounded", system-ui, -apple-system, sans-serif;
+  --fs-11: 11px; --fs-13: 13px; --fs-15: 15px; --fs-17: 17px; --fs-20: 20px; --fs-28: 28px;
+  --fw-regular: 400; --fw-medium: 500; --fw-semi: 600; --fw-bold: 700; --fw-heavy: 800;
+  --track-label: 0.08em;
+
+  /* ---- Space ----------------------------------------------------------- */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
+  --card-pad: 16px;
+
+  /* ---- Motion (about half the reference timings) ----------------------- */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out:    cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in:     cubic-bezier(0.4, 0, 1, 1);
+  --t-tap:  100ms;
+  --t-ui:   180ms;
+  --t-drop: 160ms;
+  --t-flip: 220ms;   /* one full flip; JS reads this */
+  --ripple:  30ms;   /* per square of distance; JS reads this */
+
+  color-scheme: light;
+}
+
+/* ---- Dark --------------------------------------------------------------- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1b1a21; --card: #26252e; --line: #383643; --card-border: transparent;
+    --text: #f3eee4; --muted: #ada79f;
+    --accent: #9aa4ff; --accent-text: #1b1a21;
+    --good: #5cc9bc; --bad: #ff8f7a;
+    --board: #224c46; --board-line: #2b5c55; --hint-other: #c4ddd6;
+    --disc-black-rim: #9aa0aa; --axis: #7f7a86;
+    --shadow: 0 4px 0 rgba(0, 0, 0, 0.35);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #1b1a21; --card: #26252e; --line: #383643; --card-border: transparent;
+  --text: #f3eee4; --muted: #ada79f;
+  --accent: #9aa4ff; --accent-text: #1b1a21;
+  --good: #5cc9bc; --bad: #ff8f7a;
+  --board: #224c46; --board-line: #2b5c55; --hint-other: #c4ddd6;
+  --disc-black-rim: #9aa0aa; --axis: #7f7a86;
+  --shadow: 0 4px 0 rgba(0, 0, 0, 0.35);
+  color-scheme: dark;
+}

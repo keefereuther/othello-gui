@@ -1,0 +1,23 @@
+[project]
+name = "othello-gui"
+version = "0.2.0"
+description = "Play and study Othello with the Edax engine, the Thor tournament database and named openings, in your browser"
+license = "GPL-3.0-or-later"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi>=0.143.3",
+    "numpy>=2.5.4",
+    "py7zr>=1.1.4",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+asyncio_mode = "auto"

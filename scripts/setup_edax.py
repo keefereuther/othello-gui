@@ -37,7 +37,9 @@ EVAL_URL = f"https://raw.githubusercontent.com/abulmo/edax-reversi/{EDAX_TAG}/bi
 EVAL_SIZE = 13_952_436
 RELEASE = f"{EDAX_REPO}/releases/download/{EDAX_TAG}"
 ARCHIVES = {"linux-x86_64": f"{RELEASE}/edax-4.7-linux.7z", "windows-x86_64": f"{RELEASE}/edax-4.7-windows.7z"}
-BOOK_URLS: list[str] = []  # optional ready-made opening books (release assets); empty = make a minimal one
+BOOK_URLS: list[str] = [  # ready-made opening books (release assets); if none works, a minimal one is made
+    "https://github.com/keefereuther/othello-gui/releases/download/v0.2.0/edax-book-2010-2025-level10.dat",  # 2010-2025 Thor games at level 10, 12 MB
+]
 SIBLING_EDAX = ROOT.parent / "edax-reversi" / "bin"  # developer layout: Edax checkout next to this repo
 
 

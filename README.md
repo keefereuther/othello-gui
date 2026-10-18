@@ -15,7 +15,7 @@ app's dependencies for you.
 
 ```sh
 curl -LsSf https://astral.sh/uv/install.sh | sh        # once, if you don't have uv
-git clone https://github.com/<you>/othello-gui.git
+git clone https://github.com/keefereuther/othello-gui.git
 cd othello-gui
 uv run scripts/setup_edax.py                            # fetches the engine for your computer
 uv run main.py                                          # opens http://127.0.0.1:8765/
@@ -75,8 +75,9 @@ download them yourself:
 ## A real opening book (optional)
 
 Edax plays openings instantly and with variety when it has an opening book. The
-setup creates only a minimal one. Build a proper book from the Thor games, which
-takes about 45 minutes per year of games at level 10:
+setup downloads a 12 MB book built from the 2010–2025 Thor games at level 10 (or
+falls back to a minimal one). To build your own, which takes about 45 minutes per
+year of games at level 10:
 
 ```sh
 uv run scripts/build_book.py --years 2024-2025 --level 10        # a good start

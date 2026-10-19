@@ -53,6 +53,13 @@ minimal opening book; see below for a real one.
   games (click to load one). Filters by year and player.
 - Random openings from real tournament games; **Variety** so Edax doesn't always
   play the same move.
+- **Edax thinks by** a fixed level or a time per move (1–30 s). Hints and analysis
+  always use the level; timed play runs on a second Edax process.
+- **Coach**: after each of your moves Edax checks it; if it cost at least the chosen
+  number of discs, the game pauses with the loss and the better move. Take back or play on.
+- **Endgame puzzles**: a real tournament game cut at 8–20 empties, solved exactly by
+  Edax. Find the best move; you're told the exact value, and can play the ending out
+  against perfect defence, undo to retry, or take the next puzzle.
 - Undo, transcript paste/copy, Save/Open `.ggf` game files.
 - Keyboard: ↓ / ↑ cycle through legal moves clockwise / counter-clockwise, ⏎ plays,
   ← → step through the game, Home / End, H toggles hints.
@@ -125,7 +132,14 @@ Positions in the Thor index are normalised over the 8 board symmetries, so mirro
 games and transpositions are found; the index covers positions up to move 40. Results
 come from black's final disc count. The browser only queries while its card is visible.
 
-Tests: `uv run pytest` (rules incl. perft counts, WTHOR parsing, index symmetry, openings).
+Coach and puzzle checks compare the best score before your move with the value of the
+position after it, both at the current level (the puzzle level is at least half the
+number of empties, which makes Edax's answer exact). A time per move uses a second
+Edax process started with `-move-time`, because under a time limit Edax returns only
+one hint, so hints and analysis stay on the level-based engine.
+
+Tests: `uv run pytest` (rules incl. perft counts, WTHOR parsing, index symmetry,
+openings, and the coach / puzzle / timed-play flows against a scripted fake engine).
 
 ## Look and feel
 

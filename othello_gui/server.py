@@ -145,6 +145,7 @@ class Hub:
         await session.thor_lookup()
 
     async def stop(self) -> None:
+        await self.session.close()
         await self.engine.quit()
 
 
@@ -198,6 +199,14 @@ async def handle(session: GameSession, msg: dict[str, Any]) -> None:
         await session.set_level(int(msg["level"]))
     elif kind == "set_variety":
         await session.set_variety(int(msg["discs"]))
+    elif kind == "set_move_time":
+        await session.set_move_time(msg.get("seconds"))
+    elif kind == "set_coach":
+        await session.set_coach(bool(msg.get("enabled")), msg.get("threshold"))
+    elif kind == "coach_continue":
+        await session.coach_continue()
+    elif kind == "puzzle":
+        await session.start_puzzle(int(msg.get("empties", 12)))
     elif kind == "set_players":
         await session.set_players(msg.get("black", "human"), msg.get("white", "edax"))
     elif kind == "set_hints":

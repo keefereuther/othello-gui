@@ -45,6 +45,10 @@
       </div>
     </div>
     <div class="opening-info" id="opening-info"></div>
+    <div class="coach-banner" id="coach-banner" hidden>
+      <div class="coach-text" id="coach-text"></div>
+      <div class="btn-row"><button class="btn small" id="coach-undo">Take back</button><button class="btn secondary small" id="coach-continue">Play on</button></div>
+    </div>
 
     <div class="board-wrap">
       <div class="coords cols" id="coords-cols"></div>
@@ -88,12 +92,31 @@
           <select class="select" id="ng-variety" title="Edax picks randomly among moves within this many discs of the best">
             <option value="0">Always best</option><option value="1">±1 disc</option><option value="2">±2 discs</option><option value="4">±4 discs</option><option value="8">±8 discs</option>
           </select></div>
+        <div class="field"><label for="ng-time">Edax thinks by</label>
+          <select class="select" id="ng-time" title="Fixed level, or a time limit per move. Hints and analysis always use the level">
+            <option value="0">Level (above)</option><option value="1">1 s per move</option><option value="3">3 s per move</option>
+            <option value="5">5 s per move</option><option value="10">10 s per move</option><option value="30">30 s per move</option>
+          </select></div>
+        <div class="field"><label for="coach-threshold">Coach</label>
+          <div class="coach-row" title="Pause the game when one of your moves costs at least this many discs, and show the better move">
+            <input type="checkbox" class="switch" id="coach-on">
+            <select class="select small" id="coach-threshold"><option value="2">pause at −2</option><option value="4" selected>pause at −4</option><option value="6">pause at −6</option><option value="8">pause at −8</option></select>
+          </div></div>
         <div class="field wide"><label for="ng-opening">Opening</label>
           <select class="select" id="ng-opening" title="Start from the first moves of a random real tournament game">
             <option value="0">Standard start</option><option value="4">Thor game, 4 plies</option><option value="8" selected>Thor game, 8 plies</option><option value="12">Thor game, 12 plies</option><option value="16">Thor game, 16 plies</option>
           </select></div>
       </div>
       <div class="btn-row"><button class="btn" id="btn-new">Start game</button></div>
+    </section>
+
+    <section class="card" id="puzzle-card">
+      <span class="t-label">Endgame puzzle <span class="muted" id="puzzle-meta"></span></span>
+      <div class="puzzle-text" id="puzzle-text">Find the best move in a real tournament endgame, solved exactly by Edax.</div>
+      <div class="btn-row">
+        <label class="inline-field">Empties <select class="select small" id="puzzle-empties"><option>8</option><option>10</option><option selected>12</option><option>14</option><option>16</option><option>18</option><option>20</option></select></label>
+        <button class="btn small" id="btn-puzzle">New puzzle</button>
+      </div>
     </section>
 
     <section class="card">

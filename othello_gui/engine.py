@@ -73,11 +73,14 @@ class Edax:
     may share an instance freely; a command never sees another command's output.
     """
 
-    def __init__(self, exe: Path | str, threads: int | None = None, book_randomness: int = 0) -> None:
+    def __init__(
+        self, exe: Path | str, threads: int | None = None, book_randomness: int = 0, move_time: float | None = None
+    ) -> None:
         self.exe = Path(exe).expanduser().resolve()
         self.cwd = self.exe.parent
         self.threads = threads or max(1, (os.cpu_count() or 2) - 1)
         self.book_randomness = max(0, int(book_randomness))
+        self.move_time = move_time  # seconds per move; None = search to the fixed level
         self.level: int | None = None
         self.name = "Edax"
         self.proc: asyncio.subprocess.Process | None = None
@@ -101,6 +104,10 @@ class Edax:
         args = [str(self.exe), "-nboard", "-n", str(self.threads)]
         if self.book_randomness:
             args += ["-book-randomness", str(self.book_randomness)]
+        if self.move_time:
+            # with a time limit Edax's `hint n` returns only the best move, so a
+            # timed engine is used for playing only (see GameSession)
+            args += ["-move-time", f"{self.move_time:g}"]
         self.proc = await asyncio.create_subprocess_exec(
             *args,
             cwd=str(self.cwd),

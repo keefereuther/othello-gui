@@ -86,6 +86,22 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .turn.over { color: var(--text); font-weight: var(--fw-bold); font-size: var(--fs-17); }
 .opening-info { color: var(--muted); font-size: var(--fs-13); text-align: center; min-height: 1.3em; }
 
+.coach-row { display: flex; align-items: center; gap: var(--s2); min-height: 36px; }
+.coach-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s3); flex-wrap: wrap;
+  background: var(--card); border: 1px solid var(--card-border); border-left: 4px solid var(--bad);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow); padding: var(--s2) var(--s3);
+  font-size: var(--fs-13);
+}
+.coach-banner[hidden] { display: none; }
+.coach-banner .coach-text b { font-weight: var(--fw-bold); }
+.coach-banner .loss { color: var(--bad); font-weight: var(--fw-bold); }
+.puzzle-text { font-size: var(--fs-13); color: var(--muted); line-height: 1.45; }
+.puzzle-text.ask { color: var(--text); font-weight: var(--fw-semi); }
+.puzzle-text.solved { color: var(--good); font-weight: var(--fw-semi); }
+.puzzle-text.missed { color: var(--bad); font-weight: var(--fw-semi); }
+.puzzle-text small { display: block; color: var(--muted); font-weight: var(--fw-regular); margin-top: 2px; }
+
 /* ---------- Board -------------------------------------------------------- */
 .board-wrap {
   position: relative; aspect-ratio: 1 / 1;

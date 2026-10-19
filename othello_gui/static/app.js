@@ -107,6 +107,8 @@ function render(anim) {
   renderGraph();
   renderHints();
   renderAnalysis();
+  renderCoach();
+  renderPuzzle();
   const ta = $("transcript");
   if (document.activeElement !== ta) ta.value = state.transcript || "";
 }
@@ -141,6 +143,7 @@ function renderScore() {
   $("who-white").textContent = playerLabel(state.players.O);
   const o = state.opening;
   $("opening-info").textContent = !o ? ""
+    : o.puzzle ? `Endgame puzzle · ${o.empties} empties · from ${o.black} – ${o.white}, ${o.tournament} ${o.year} (${o.result})`
     : o.full ? `${o.black} – ${o.white}, ${o.tournament} ${o.year} (${o.result})`
     : `Opening from ${o.black} – ${o.white}, ${o.tournament} ${o.year} (${o.result}), first ${o.plies} plies`;
   const t = $("turn");
@@ -193,6 +196,9 @@ function renderBoard(anim) {
   if (showHints) hints.hints.forEach((h) => hintBySq.set(h.sq, h));
   const bestScore = showHints ? Math.max(...hints.hints.map((h) => h.score)) : null;
   const animFlips = new Set(anim ? anim.flips : []);
+  const pz = state.puzzle;
+  const markSq = state.coach_alert ? state.coach_alert.best_sq
+    : pz && (pz.status === "solved" || pz.status === "missed") && state.cursor === 1 ? pz.best_sq : -1;
 
   for (let sq = 0; sq < 64; sq++) {
     const el = board.children[sq];
@@ -200,7 +206,7 @@ function renderBoard(anim) {
     el.classList.toggle("legal", v === "-" && legal.has(sq));
     el.classList.toggle("last", sq === lastSq && v !== "-");
     el.classList.toggle("selected", sq === selectedSq);
-    el.classList.remove("peek");
+    el.classList.toggle("peek", sq === markSq);
     el.setAttribute("aria-label", `${sqName(sq)}, ${v === "X" ? "black disc" : v === "O" ? "white disc" : legal.has(sq) ? "empty, legal move" : "empty"}`);
 
     let disc = el.querySelector(".disc");
@@ -243,6 +249,9 @@ function renderNav() {
   $("hints-n").value = String(state.hint_count);
   if (document.activeElement !== $("ng-level")) $("ng-level").value = state.level;
   $("ng-variety").value = String(state.variety ?? 0);
+  $("ng-time").value = String(state.move_time || 0);
+  $("coach-on").checked = !!(state.coach && state.coach.enabled);
+  if (state.coach) $("coach-threshold").value = String(state.coach.threshold);
   const sel = $("ng-opening");
   for (const opt of sel.options) if (opt.value !== "0") opt.disabled = !state.thor_games;
   if (!state.thor_games && sel.value !== "0") sel.value = "0";
@@ -371,6 +380,51 @@ function renderGraph() {
   svg.innerHTML = s;
   svg.querySelectorAll(".eval-dot").forEach((c) => c.addEventListener("click", () => send({ type: "goto", index: Number(c.dataset.i) + 1 })));
 }
+
+/* ───────────────────────── coach & puzzles ───────────────────────── */
+
+function renderCoach() {
+  const a = state.coach_alert, el = $("coach-banner");
+  if (!a) { el.hidden = true; return; }
+  el.hidden = false;
+  $("coach-text").innerHTML =
+    `<b>${a.move.toUpperCase()}</b> cost about <span class="loss">${fmtNum(a.loss)} discs</span>. ` +
+    `Better was <b>${a.best.toUpperCase()}</b> (${fmtScore(a.best_score)} instead of ${fmtScore(a.played_score)}).`;
+}
+
+function renderPuzzle() {
+  const pz = state.puzzle, el = $("puzzle-text"), meta = $("puzzle-meta");
+  $("btn-puzzle").disabled = !state.thor_games || (pz && pz.status === "solving");
+  $("btn-puzzle").textContent = pz ? "Next puzzle" : "New puzzle";
+  if (!pz) {
+    el.className = "puzzle-text";
+    el.textContent = state.thor_games
+      ? "Find the best move in a real tournament endgame, solved exactly by Edax."
+      : "Needs the Thor database (see the Thor card).";
+    meta.textContent = "";
+    return;
+  }
+  meta.textContent = `${pz.empties} empties · level ${pz.level}`;
+  const side = pz.to_move === "X" ? "Black" : "White";
+  if (pz.status === "solving") { el.className = "puzzle-text"; el.textContent = `${side} to move. Edax is solving the position…`; }
+  else if (pz.status === "ask") { el.className = "puzzle-text ask"; el.textContent = `${side} to move. Find the best move (exact result).`; }
+  else if (pz.status === "solved") {
+    el.className = "puzzle-text solved";
+    el.innerHTML = `Correct: ${pz.played.toUpperCase()} is the best move (${fmtScore(pz.best_score)} for ${side.toLowerCase()}).` +
+      `<small>Play it out against Edax's perfect defence, or take the next puzzle.</small>`;
+  } else {
+    el.className = "puzzle-text missed";
+    el.innerHTML = `${pz.played.toUpperCase()} loses ${fmtNum(pz.loss)} discs. Best was ${pz.best.toUpperCase()} (${fmtScore(pz.best_score)} instead of ${fmtScore(pz.played_score)}).` +
+      `<small>Undo to try again, play it out, or take the next puzzle.</small>`;
+  }
+}
+
+$("btn-puzzle").onclick = () => send({ type: "puzzle", empties: Number($("puzzle-empties").value) });
+$("coach-undo").onclick = () => send({ type: "undo" });
+$("coach-continue").onclick = () => send({ type: "coach_continue" });
+$("ng-time").onchange = () => send({ type: "set_move_time", seconds: Number($("ng-time").value) || null });
+$("coach-on").onchange = () => send({ type: "set_coach", enabled: $("coach-on").checked, threshold: Number($("coach-threshold").value) });
+$("coach-threshold").onchange = () => send({ type: "set_coach", enabled: $("coach-on").checked, threshold: Number($("coach-threshold").value) });
 
 /* ───────────────────────── Thor database card ───────────────────────── */
 

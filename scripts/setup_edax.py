@@ -19,9 +19,8 @@ engine/<platform>/, which git ignores. Re-run with --force to refetch.
 from __future__ import annotations
 
 import argparse
-import asyncio
+import contextlib
 import os
-import platform
 import shutil
 import subprocess
 import sys
@@ -29,29 +28,26 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-ENGINE_DIR = ROOT / "engine"
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # make othello_gui importable
+from othello_gui.paths import ENGINE_DIR, SIBLING_EDAX, engine_usable, exe_name, platform_tag  # noqa: E402
+
 EDAX_REPO = "https://github.com/abulmo/edax-reversi"
 EDAX_TAG = "v4.7"
 EVAL_URL = f"https://raw.githubusercontent.com/abulmo/edax-reversi/{EDAX_TAG}/bin/data/eval.dat"
 EVAL_SIZE = 13_952_436
 RELEASE = f"{EDAX_REPO}/releases/download/{EDAX_TAG}"
-ARCHIVES = {"linux-x86_64": f"{RELEASE}/edax-4.7-linux.7z", "windows-x86_64": f"{RELEASE}/edax-4.7-windows.7z"}
-BOOK_URLS: list[str] = [  # ready-made opening books (release assets); if none works, a minimal one is made
-    "https://github.com/keefereuther/othello-gui/releases/download/v0.2.0/edax-book-2010-2025-level10.dat",  # 2010-2025 Thor games at level 10, 12 MB
+ARCHIVES = {
+    "linux-x86_64": f"{RELEASE}/edax-4.7-linux.7z",
+    "windows-x86_64": f"{RELEASE}/edax-4.7-windows.7z",
+}
+# ready-made opening books (release assets); if none works, a minimal one is made
+BOOK_URLS: list[str] = [
+    # 2010-2025 Thor games at level 10, 12 MB
+    "https://github.com/keefereuther/othello-gui/releases/download/v0.2.0/edax-book-2010-2025-level10.dat",
 ]
-SIBLING_EDAX = ROOT.parent / "edax-reversi" / "bin"  # developer layout: Edax checkout next to this repo
 
 
-def platform_tag() -> str:
-    system = {"darwin": "darwin", "linux": "linux", "win32": "windows"}.get(sys.platform, sys.platform)
-    machine = platform.machine().lower()
-    machine = {"arm64": "arm64", "aarch64": "arm64", "x86_64": "x86_64", "amd64": "x86_64"}.get(machine, machine)
-    return f"{system}-{machine}"
-
-
-def exe_name(tag: str) -> str:
-    return "edax.exe" if tag.startswith("windows") else "mEdax" if tag.startswith("darwin") else "edax"
+SHIPPED_MEDAX = ENGINE_DIR / "darwin-arm64" / "mEdax"  # committed Apple Silicon build
 
 
 def say(msg: str) -> None:
@@ -83,7 +79,8 @@ def cpu_level(requested: str | None) -> str:
         if sys.platform.startswith("linux"):
             flags = Path("/proc/cpuinfo").read_text().lower()
         elif sys.platform == "darwin":
-            flags = subprocess.run(["sysctl", "-n", "machdep.cpu.features", "machdep.cpu.leaf7_features"], capture_output=True, text=True).stdout.lower()
+            sysctl = ["sysctl", "-n", "machdep.cpu.features", "machdep.cpu.leaf7_features"]
+            flags = subprocess.run(sysctl, capture_output=True, text=True).stdout.lower()
     except Exception:
         pass
     if "avx2" in flags:
@@ -124,15 +121,16 @@ def build_from_source(dest_exe: Path, tag: str) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         src = Path(tmp) / "edax-reversi"
         say("  cloning Edax source …")
-        subprocess.run(["git", "clone", "--quiet", "--depth", "1", "--branch", EDAX_TAG, EDAX_REPO, str(src)], check=True)
+        clone = ["git", "clone", "--quiet", "--depth", "1", "--branch", EDAX_TAG, EDAX_REPO, str(src)]
+        subprocess.run(clone, check=True)
         patch = ENGINE_DIR / "edax-macos-fixes.patch"
         if patch.exists():
             subprocess.run(["git", "-C", str(src), "apply", str(patch)], check=True)
         arch = "armv8.5-a" if tag.endswith("arm64") else "x86-64-v2"
         os_name = "osx" if tag.startswith("darwin") else "linux"
         say(f"  compiling Edax ({arch}) … this takes a minute")
-        subprocess.run(["make", "build", f"ARCH={arch}", f"OS={os_name}", "CC=clang"], cwd=src / "src", check=True,
-                       stdout=subprocess.DEVNULL)
+        make = ["make", "build", f"ARCH={arch}", f"OS={os_name}", "CC=clang"]
+        subprocess.run(make, cwd=src / "src", check=True, stdout=subprocess.DEVNULL)
         built = next((src / "bin").glob("*Edax*"))
         dest_exe.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(built, dest_exe)
@@ -159,17 +157,11 @@ def ensure_book(exe: Path, data: Path) -> None:
         except Exception as e:  # pragma: no cover - network
             say(f"  could not download {url}: {e}")
     say("  creating a minimal opening book …")
-    try:
+    with contextlib.suppress(subprocess.TimeoutExpired):
         subprocess.run([str(exe), "-l", "1", "-q", "-book-file", str(book)], input=b"quit\n", cwd=exe.parent,
                        timeout=120, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except subprocess.TimeoutExpired:
-        pass
     if not book.exists():
         say("  warning: could not create a book; the first start will be slow once")
-
-
-def usable(exe: Path) -> bool:
-    return exe.exists() and (exe.parent / "data" / "eval.dat").exists()
 
 
 def main() -> None:
@@ -186,9 +178,10 @@ def main() -> None:
     exe = dest / exe_name(tag)
     data = dest / "data"
 
-    if args.if_missing and not args.force:
-        if usable(exe) or usable(SIBLING_EDAX / "mEdax") or os.environ.get("EDAX_BIN"):
-            return
+    if args.if_missing and not args.force and (
+        engine_usable(exe) or engine_usable(SIBLING_EDAX / "mEdax") or os.environ.get("EDAX_BIN")
+    ):
+        return
 
     say(f"Setting up Edax for {tag} in {dest}")
     data.mkdir(parents=True, exist_ok=True)
@@ -196,8 +189,8 @@ def main() -> None:
     if args.force or not exe.exists():
         if tag in ARCHIVES:
             extract_release(ARCHIVES[tag], exe, cpu_level(args.arch))
-        elif tag == "darwin-arm64" and (ENGINE_DIR / "darwin-arm64" / "mEdax").exists() and exe != ENGINE_DIR / "darwin-arm64" / "mEdax":
-            shutil.copy(ENGINE_DIR / "darwin-arm64" / "mEdax", exe)
+        elif tag == "darwin-arm64" and SHIPPED_MEDAX.exists() and exe != SHIPPED_MEDAX:
+            shutil.copy(SHIPPED_MEDAX, exe)
             exe.chmod(0o755)
         elif tag == "darwin-arm64" and exe.exists():
             pass

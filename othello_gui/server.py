@@ -8,13 +8,18 @@ Configuration is read from environment variables:
     EDAX_LEVEL     initial search level (default: 8)
     EDAX_BOOK_RANDOMNESS  let Edax pick slightly worse book moves (default: 0)
     WTHOR_DIR      folder with the WTHOR files (default: wthor/ here, or ../wthor)
+
+Every client message is a JSON object with a ``type`` and is dispatched through
+``HANDLERS`` to a GameSession method; see CLAUDE.md for the full protocol.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -22,55 +27,22 @@ from typing import Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
+from . import curriculum
 from .engine import Edax, EdaxError
+from .paths import find_edax, find_wthor, progress_file, wthor_available
 from .session import GameSession
 from .thor_index import ThorIndex
+from .training import Trainer
 from .wthor import ThorDatabase
 
 log = logging.getLogger(__name__)
 
-ROOT = Path(__file__).resolve().parent
-STATIC = ROOT / "static"
-APP = ROOT.parent  # the repository folder
+STATIC = Path(__file__).resolve().parent / "static"
 
 
 def _env_int(name: str) -> int | None:
     value = os.environ.get(name)
     return int(value) if value else None
-
-
-def _platform_tag() -> str:
-    import platform
-    import sys
-
-    system = {"darwin": "darwin", "linux": "linux", "win32": "windows"}.get(sys.platform, sys.platform)
-    machine = platform.machine().lower()
-    machine = {"arm64": "arm64", "aarch64": "arm64", "x86_64": "x86_64", "amd64": "x86_64"}.get(machine, machine)
-    return f"{system}-{machine}"
-
-
-def find_edax() -> Path:
-    """EDAX_BIN, else engine/<platform>/ (set up by scripts/setup_edax.py), else a
-    developer checkout of Edax next to this repository."""
-    if os.environ.get("EDAX_BIN"):
-        return Path(os.environ["EDAX_BIN"]).expanduser()
-    tag = _platform_tag()
-    name = "edax.exe" if tag.startswith("windows") else "mEdax" if tag.startswith("darwin") else "edax"
-    candidates = [APP / "engine" / tag / name, APP.parent / "edax-reversi" / "bin" / "mEdax"]
-    for c in candidates:
-        if c.exists() and (c.parent / "data" / "eval.dat").exists():
-            return c
-    return candidates[0]
-
-
-def find_wthor() -> Path:
-    """WTHOR_DIR, else wthor/ inside this repository, else next to it."""
-    if os.environ.get("WTHOR_DIR"):
-        return Path(os.environ["WTHOR_DIR"]).expanduser()
-    for c in (APP / "wthor", APP.parent / "wthor"):
-        if (c / "WTHOR.JOU").exists():
-            return c
-    return APP / "wthor"
 
 
 class Hub:
@@ -81,7 +53,7 @@ class Hub:
         self.engine = Edax(find_edax(), _env_int("EDAX_THREADS"), _env_int("EDAX_BOOK_RANDOMNESS") or 0)
         thor = None
         wthor_dir = find_wthor()
-        if (wthor_dir / "WTHOR.JOU").exists():
+        if wthor_available(wthor_dir):
             thor = ThorDatabase(wthor_dir)
             log.info("Thor database: %d games from %s", len(thor), wthor_dir)
         else:
@@ -89,6 +61,8 @@ class Hub:
                         "See README for how to add it.", wthor_dir)
         self.session = GameSession(self.engine, self.broadcast, thor)
         self.session.level = _env_int("EDAX_LEVEL") or 8
+        self.session.trainer = Trainer(self.session, progress_file())
+        self._thor_task: asyncio.Task | None = None
 
     async def broadcast(self, message: dict[str, Any]) -> None:
         dead = []
@@ -127,10 +101,8 @@ class Hub:
         async def report() -> None:
             while not done.is_set():
                 await self.broadcast(session.thor_message())
-                try:
+                with contextlib.suppress(asyncio.TimeoutError):
                     await asyncio.wait_for(done.wait(), 0.5)
-                except asyncio.TimeoutError:
-                    pass
 
         reporter = asyncio.create_task(report())
         try:
@@ -164,6 +136,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Othello GUI", lifespan=lifespan)
 
 
+@app.get("/api/curriculum")
+async def get_curriculum() -> list[dict[str, Any]]:
+    return curriculum.public()
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
     await ws.accept()
@@ -185,46 +162,66 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         hub.clients.discard(ws)
 
 
+# ---------------------------------------------------------------- client messages
+
+Handler = Callable[[GameSession, dict[str, Any]], Awaitable[None]]
+
+
+async def _in_background(coro: Awaitable[None]) -> None:
+    """Run a long job (game analysis) without blocking the WebSocket loop."""
+    asyncio.create_task(coro)
+
+
+def _players(m: dict[str, Any]) -> tuple[str, str]:
+    return m.get("black", "human"), m.get("white", "edax")
+
+
+def _trainer(s: GameSession) -> Trainer:
+    if s.trainer is None:
+        raise ValueError("training is not available")
+    return s.trainer
+
+
+HANDLERS: dict[str, Handler] = {
+    # game
+    "new_game": lambda s, m: s.new_game(*_players(m), m.get("level"), m.get("opening")),
+    "move": lambda s, m: s.user_move(int(m["sq"])),
+    "undo": lambda s, m: s.undo(),
+    "goto": lambda s, m: s.goto(int(m["index"])),
+    "load_transcript": lambda s, m: s.load_transcript(str(m.get("text", ""))),
+    "refresh": lambda s, m: s.touch(),
+    # settings
+    "set_players": lambda s, m: s.set_players(*_players(m)),
+    "set_level": lambda s, m: s.set_level(int(m["level"])),
+    "set_variety": lambda s, m: s.set_variety(int(m["discs"])),
+    "set_move_time": lambda s, m: s.set_move_time(m.get("seconds")),
+    "set_hints": lambda s, m: s.set_hints(bool(m.get("enabled", True)), m.get("count")),
+    # coach, puzzles, analysis
+    "set_coach": lambda s, m: s.set_coach(bool(m.get("enabled")), m.get("threshold")),
+    "coach_continue": lambda s, m: s.coach_continue(),
+    "puzzle": lambda s, m: s.start_puzzle(int(m.get("empties", 12))),
+    "analyze": lambda s, m: _in_background(s.analyze(m.get("level"))),
+    # Thor database
+    "thor_lookup": lambda s, m: s.thor_lookup(),
+    "thor_filters": lambda s, m: s.set_thor_filters(m.get("min_year"), m.get("player", "")),
+    "thor_game": lambda s, m: s.load_thor_game(int(m["index"])),
+    # training
+    "train_open": lambda s, m: _trainer(s).open_unit(str(m["unit"])),
+    "train_close": lambda s, m: _trainer(s).close(),
+    "train_lesson_done": lambda s, m: _trainer(s).lesson_done(),
+    "train_example": lambda s, m: _trainer(s).show_example(),
+    "train_drill": lambda s, m: _trainer(s).next_drill(),
+    "train_answer": lambda s, m: _trainer(s).answer(int(m["choice"])),
+    "train_scrimmage": lambda s, m: _trainer(s).start_scrimmage(),
+}
+
+
 async def handle(session: GameSession, msg: dict[str, Any]) -> None:
     kind = msg.get("type")
-    if kind == "new_game":
-        await session.new_game(msg.get("black", "human"), msg.get("white", "edax"), msg.get("level"), msg.get("opening"))
-    elif kind == "move":
-        await session.user_move(int(msg["sq"]))
-    elif kind == "undo":
-        await session.undo()
-    elif kind == "goto":
-        await session.goto(int(msg["index"]))
-    elif kind == "set_level":
-        await session.set_level(int(msg["level"]))
-    elif kind == "set_variety":
-        await session.set_variety(int(msg["discs"]))
-    elif kind == "set_move_time":
-        await session.set_move_time(msg.get("seconds"))
-    elif kind == "set_coach":
-        await session.set_coach(bool(msg.get("enabled")), msg.get("threshold"))
-    elif kind == "coach_continue":
-        await session.coach_continue()
-    elif kind == "puzzle":
-        await session.start_puzzle(int(msg.get("empties", 12)))
-    elif kind == "set_players":
-        await session.set_players(msg.get("black", "human"), msg.get("white", "edax"))
-    elif kind == "set_hints":
-        await session.set_hints(bool(msg.get("enabled", True)), msg.get("count"))
-    elif kind == "load_transcript":
-        await session.load_transcript(str(msg.get("text", "")))
-    elif kind == "analyze":
-        asyncio.create_task(session.analyze(msg.get("level")))
-    elif kind == "thor_lookup":
-        await session.thor_lookup()
-    elif kind == "thor_filters":
-        await session.set_thor_filters(msg.get("min_year"), msg.get("player", ""))
-    elif kind == "thor_game":
-        await session.load_thor_game(int(msg["index"]))
-    elif kind == "refresh":
-        await session.touch()
-    else:
+    handler = HANDLERS.get(kind)
+    if handler is None:
         raise ValueError(f"unknown message type {kind!r}")
+    await handler(session, msg)
 
 
 # Static files last so that /ws is matched first.

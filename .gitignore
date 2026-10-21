@@ -1,18 +1,21 @@
-# Python-generated files
+# Python
 __pycache__/
 *.py[oc]
 build/
 dist/
 wheels/
 *.egg-info
-
-# Virtual environments
 .venv
+.pytest_cache/
+.ruff_cache/
 
-# generated next to the WTHOR files, never commit
-thor-index*.npz
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
 
-# fetched by scripts/setup_edax.py: platform binaries, weights, books
+# fetched by scripts/setup_edax.py: platform binaries, weights, books.
+# Only the Apple Silicon build, the patch and the notes are committed.
 engine/*
 !engine/README.md
 !engine/edax-macos-fixes.patch
@@ -20,6 +23,10 @@ engine/*
 engine/darwin-arm64/*
 !engine/darwin-arm64/mEdax
 
-# user-supplied Thor database (download from https://www.ffothello.org) and its index
+# user-supplied Thor database (download from https://www.ffothello.org)
+# and the position index built next to it
 wthor/
 thor-index*.npz
+
+# your training progress (lessons, drills, scrimmages)
+progress.json

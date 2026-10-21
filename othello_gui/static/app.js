@@ -109,6 +109,7 @@ function render(anim) {
   renderAnalysis();
   renderCoach();
   renderPuzzle();
+  if (typeof renderTraining === "function") renderTraining();  // training.js loads after this file
   const ta = $("transcript");
   if (document.activeElement !== ta) ta.value = state.transcript || "";
 }
@@ -199,6 +200,7 @@ function renderBoard(anim) {
   const pz = state.puzzle;
   const markSq = state.coach_alert ? state.coach_alert.best_sq
     : pz && (pz.status === "solved" || pz.status === "missed") && state.cursor === 1 ? pz.best_sq : -1;
+  const marks = new Map(state.training ? state.training.marks : []);
 
   for (let sq = 0; sq < 64; sq++) {
     const el = board.children[sq];
@@ -207,6 +209,9 @@ function renderBoard(anim) {
     el.classList.toggle("last", sq === lastSq && v !== "-");
     el.classList.toggle("selected", sq === selectedSq);
     el.classList.toggle("peek", sq === markSq);
+    el.classList.toggle("mark-good", marks.get(sq) === "good");
+    el.classList.toggle("mark-bad", marks.get(sq) === "bad");
+    el.classList.toggle("mark-focus", marks.get(sq) === "focus");
     el.setAttribute("aria-label", `${sqName(sq)}, ${v === "X" ? "black disc" : v === "O" ? "white disc" : legal.has(sq) ? "empty, legal move" : "empty"}`);
 
     let disc = el.querySelector(".disc");
@@ -304,10 +309,6 @@ function renderMoves(animateLast) {
     if (top < list.scrollTop) list.scrollTop = top;
     else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
   }
-  if (location.hash === "#debug") {
-    const bw = document.querySelector(".board-wrap"), lay = document.querySelector(".layout"), col = document.querySelector(".board-column");
-    document.title = `debug win=${innerWidth}x${innerHeight} scroll=${scrollX},${scrollY} layout=${lay.offsetWidth} col=${col.offsetWidth} boardwrap=${bw.offsetWidth}x${bw.offsetHeight} top=${bw.getBoundingClientRect().top + scrollY} docW=${document.documentElement.scrollWidth}`;
-  }
 }
 
 function renderHints() {
@@ -389,7 +390,8 @@ function renderCoach() {
   el.hidden = false;
   $("coach-text").innerHTML =
     `<b>${a.move.toUpperCase()}</b> cost about <span class="loss">${fmtNum(a.loss)} discs</span>. ` +
-    `Better was <b>${a.best.toUpperCase()}</b> (${fmtScore(a.best_score)} instead of ${fmtScore(a.played_score)}).`;
+    `Better was <b>${a.best.toUpperCase()}</b> (${fmtScore(a.best_score)} instead of ${fmtScore(a.played_score)}).` +
+    (a.why ? `<div class="coach-why">${esc(a.why)}</div>` : "");
 }
 
 function renderPuzzle() {
@@ -433,7 +435,7 @@ const posKey = () => (state ? state.board + state.to_move : "");
 /* Ask the server for Thor statistics when the position changed and the card is
    on screen (or always, with force). */
 function requestThor(force) {
-  if (!state || (!thorVisible && !force)) return;
+  if (!state || (!thorVisible && !force) || $("thor-card").classList.contains("collapsed")) return;
   if (!force && thorAsked === posKey()) return;
   thorAsked = posKey();
   send({ type: "thor_lookup" });
@@ -453,6 +455,12 @@ function renderThor() {
   const list = $("thor-games"), head = $("thor-games-head");
   tbody.innerHTML = ""; list.innerHTML = ""; head.textContent = "";
   const t = thor;
+  const tr = state && state.training;
+  if (tr && tr.mode === "drill" && tr.drill && tr.drill.status !== "answered") {
+    meta.textContent = "";
+    summary.innerHTML = `<div class="thor-note">Hidden during the drill, so it can't give the answer away.</div>`;
+    return;
+  }
   if (!t || !t.available) {
     meta.textContent = "";
     summary.innerHTML = t
@@ -705,6 +713,33 @@ $("theme-toggle").onclick = () => {
   document.documentElement.dataset.theme = next;
   try { localStorage.setItem("theme", next); } catch { /* private mode */ }
 };
+
+/* ───────────────────────── sidebar panels ───────────────────────── */
+
+/* Each card can be collapsed to its title so the panels that matter for the
+   current task sit next to the board. Everything except New game starts
+   collapsed; after that, each panel's open/closed choice is remembered. */
+const OPEN_BY_DEFAULT = new Set(["newgame"]);
+const PANELS_KEY = "panels";
+function loadPanels() { try { return JSON.parse(localStorage.getItem(PANELS_KEY)) || {}; } catch { return {}; } }
+document.querySelectorAll(".sidebar .card[data-panel]").forEach((card) => {
+  const name = card.dataset.panel, head = card.querySelector(":scope > .t-label");
+  const chevron = document.createElement("span");
+  chevron.className = "card-toggle"; chevron.setAttribute("aria-hidden", "true");
+  head.appendChild(chevron);
+  head.setAttribute("role", "button"); head.tabIndex = 0; head.title = "Show / hide this panel";
+  const set = (collapsed) => { card.classList.toggle("collapsed", collapsed); head.setAttribute("aria-expanded", String(!collapsed)); };
+  const saved = loadPanels()[name];
+  set(saved === undefined ? !OPEN_BY_DEFAULT.has(name) : !!saved);
+  const flip = () => {
+    set(!card.classList.contains("collapsed"));
+    const p = loadPanels(); p[name] = card.classList.contains("collapsed");
+    try { localStorage.setItem(PANELS_KEY, JSON.stringify(p)); } catch { /* private mode */ }
+    if (name === "thor" && !p[name]) requestThor(false);
+  };
+  head.addEventListener("click", flip);
+  head.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { flip(); e.preventDefault(); e.stopPropagation(); } });
+});
 
 /* ───────────────────────── helpers ───────────────────────── */
 

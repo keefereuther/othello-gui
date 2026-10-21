@@ -4,9 +4,10 @@ from pathlib import Path
 import pytest
 
 from othello_gui import board as B
+from othello_gui.paths import find_wthor
 from othello_gui.wthor import ThorDatabase, decode_move
 
-WTHOR_DIR = Path(__file__).resolve().parent.parent.parent / "wthor"
+WTHOR_DIR = find_wthor()
 
 
 def test_decode_move():
@@ -21,8 +22,10 @@ def test_synthetic_database(tmp_path: Path):
     header = struct.pack("<BBBBIHHBBBB", 20, 26, 1, 1, 1, 0, 2024, 8, 0, 24, 0)
     moves = bytes([56, 64, 33, 34]) + bytes(56)
     (tmp_path / "WTH_2024.wtb").write_bytes(header + struct.pack("<HHHBB60s", 0, 1, 0, 40, 40, moves))
-    (tmp_path / "WTHOR.JOU").write_bytes(struct.pack("<BBBBIHHBBBB", 20, 26, 1, 1, 0, 2, 0, 0, 0, 0, 0) + b"???".ljust(20, b"\0") + b"Tastet Marc".ljust(20, b"\0"))
-    (tmp_path / "WTHOR.TRN").write_bytes(struct.pack("<BBBBIHHBBBB", 20, 26, 1, 1, 0, 1, 0, 0, 0, 0, 0) + b"Worlds".ljust(26, b"\0"))
+    players = b"???".ljust(20, b"\0") + b"Tastet Marc".ljust(20, b"\0")
+    (tmp_path / "WTHOR.JOU").write_bytes(struct.pack("<BBBBIHHBBBB", 20, 26, 1, 1, 0, 2, 0, 0, 0, 0, 0) + players)
+    tournaments = b"Worlds".ljust(26, b"\0")
+    (tmp_path / "WTHOR.TRN").write_bytes(struct.pack("<BBBBIHHBBBB", 20, 26, 1, 1, 0, 1, 0, 0, 0, 0, 0) + tournaments)
     db = ThorDatabase(tmp_path)
     assert len(db) == 1
     g = db.game(0)

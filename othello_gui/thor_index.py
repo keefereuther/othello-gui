@@ -29,9 +29,10 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 
@@ -201,7 +202,7 @@ class ThorIndex:
     @classmethod
     def load_or_build(
         cls, db: ThorDatabase, progress: Callable[[float], None] | None = None, cache_dir: Path | None = None
-    ) -> "ThorIndex":
+    ) -> ThorIndex:
         cache = (cache_dir or db.directory) / CACHE_NAME
         signature = _signature(db.directory)
         if cache.exists():
@@ -222,7 +223,7 @@ class ThorIndex:
         return idx
 
     @classmethod
-    def build(cls, db: ThorDatabase, progress: Callable[[float], None] | None = None) -> "ThorIndex":
+    def build(cls, db: ThorDatabase, progress: Callable[[float], None] | None = None) -> ThorIndex:
         t0 = time.time()
         n = len(db)
         header = _header_matrix(db)

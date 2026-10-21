@@ -29,9 +29,9 @@ import asyncio
 import logging
 import os
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Awaitable, Callable
 
 from .board import parse_sq
 
@@ -134,7 +134,7 @@ class Edax:
         )
         try:
             await asyncio.wait_for(proc.communicate(b"quit\n"), timeout=60)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
         if not book.exists():
             log.warning("could not create %s; the first start may be slow", book)
@@ -166,7 +166,7 @@ class Edax:
             await self._ping()
             # stderr is a separate pipe; give the reader a moment to catch up
             await asyncio.sleep(0.02)
-            new_errors = [l for l in self._stderr[n_err:] if l.startswith("Error")]
+            new_errors = [line for line in self._stderr[n_err:] if line.startswith("Error")]
             if new_errors:
                 raise EdaxError(new_errors[-1])
 

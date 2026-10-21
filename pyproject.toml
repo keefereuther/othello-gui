@@ -4,7 +4,7 @@ version = "0.2.0"
 description = "Play and study Othello with the Edax engine, the Thor tournament database and named openings, in your browser"
 license = "GPL-3.0-or-later"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.143.3",
     "numpy>=2.5.4",
@@ -16,8 +16,21 @@ dependencies = [
 dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "ruff>=0.14",
 ]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
 asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+extend-exclude = ["engine", "wthor"]
+
+[tool.ruff.lint]
+# pyflakes/pycodestyle, import order, modern syntax, bugbear, simplifications
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"othello_gui/curriculum.py" = ["E501"]  # lesson prose

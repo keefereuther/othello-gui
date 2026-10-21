@@ -10,7 +10,7 @@ def _positions(seq: str) -> list[B.Position]:
 
 
 def test_every_table_line_is_a_legal_game():
-    lines = [l for l in DATA.read_text().splitlines() if l.strip() and not l.startswith("//")]
+    lines = [line for line in DATA.read_text().splitlines() if line.strip() and not line.startswith("//")]
     for line in lines:
         B.replay(B.Position(), B.parse_transcript(line.split()[0]))  # raises on an illegal line
     assert len(table()) >= 80

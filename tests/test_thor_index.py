@@ -1,17 +1,25 @@
 import random
-import struct
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 from othello_gui import board as B
+from othello_gui.paths import find_wthor
 from othello_gui.thor_index import (
-    INVERSE, SQMAP, U64, Filters, ThorIndex, bitboards, canonical, position_key, transform,
+    INVERSE,
+    SQMAP,
+    U64,
+    Filters,
+    ThorIndex,
+    bitboards,
+    canonical,
+    position_key,
+    transform,
 )
 from othello_gui.wthor import ThorDatabase
 
-WTHOR_DIR = Path(__file__).resolve().parent.parent.parent / "wthor"
+WTHOR_DIR = find_wthor()
 
 
 def _transform_board(board: str, t: int) -> str:
@@ -103,23 +111,8 @@ def test_continuations_map_back_onto_the_viewed_board(seed):
 
 # ----------------------------------------------------------------- synthetic database
 
-def _write_db(tmp_path: Path, games: list[tuple[str, int]]) -> ThorDatabase:
-    """games: (transcript, black discs). Players: 0 '???', 1 'Alice', 2 'Bob'."""
-    recs = b""
-    for text, discs in games:
-        moves = [(sq // 8 + 1) * 10 + (sq % 8 + 1) for sq in B.parse_transcript(text)]
-        recs += struct.pack("<HHHBB60s", 0, 1, 2, discs, discs, bytes(moves).ljust(60, b"\0"))
-    hdr = struct.pack("<BBBBIHHBBBB", 20, 26, 1, 1, len(games), 0, 2024, 8, 0, 24, 0)
-    (tmp_path / "WTH_2024.wtb").write_bytes(hdr + recs)
-    jou = struct.pack("<BBBBIHHBBBB", 20, 26, 1, 1, 0, 3, 0, 0, 0, 0, 0)
-    (tmp_path / "WTHOR.JOU").write_bytes(jou + b"".join(n.ljust(20, b"\0") for n in (b"???", b"Alice", b"Bob")))
-    trn = struct.pack("<BBBBIHHBBBB", 20, 26, 1, 1, 0, 1, 0, 0, 0, 0, 0)
-    (tmp_path / "WTHOR.TRN").write_bytes(trn + b"Test Open".ljust(26, b"\0"))
-    return ThorDatabase(tmp_path)
-
-
-def test_index_roundtrip_and_cache(tmp_path: Path):
-    db = _write_db(tmp_path, [("f5d6c3d3c4", 40), ("f5f6e6f4", 20), ("f5d6c5", 32)])
+def test_index_roundtrip_and_cache(tmp_path: Path, make_wthor):
+    db = make_wthor([("f5d6c3d3c4", 40), ("f5f6e6f4", 20), ("f5d6c5", 32)])
     idx = ThorIndex.load_or_build(db)
     assert (tmp_path / "thor-index.npz").exists()
 
@@ -149,8 +142,8 @@ def test_index_roundtrip_and_cache(tmp_path: Path):
     assert idx.lookup(B.Position().board, B.BLACK, Filters(player="zed"))["games"] == 0
 
 
-def test_game_aligned_follows_the_viewed_orientation(tmp_path: Path):
-    db = _write_db(tmp_path, [("f5d6c3d3c4f4", 40)])
+def test_game_aligned_follows_the_viewed_orientation(make_wthor):
+    db = make_wthor([("f5d6c3d3c4f4", 40)])
     idx = ThorIndex.load_or_build(db)
     viewed = B.replay(B.Position(), B.parse_transcript("d3c5"))[-1]
     moves, ply = idx.game_aligned(0, viewed.board, viewed.player)

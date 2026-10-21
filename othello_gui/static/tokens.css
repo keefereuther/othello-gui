@@ -43,6 +43,9 @@
   --last-on-white:  #4b58c8;   /* fixed indigo: the disc is white in both themes (5.4) */
   --legal-dot:      color-mix(in srgb, var(--disc-white) 55%, var(--board));
   --focus:          #ffffff;   /* keyboard selection ring, 7.4 on board */
+  --mark-good:      #ffd166;   /* training: best move ring (same yellow as the best hint) */
+  --mark-bad:       #ff8f7a;   /* training: your costly move, coral, 3.4 on board */
+  --mark-focus:     #ffffff;   /* training: the square a question is about */
   --axis:           #8a847c;
 
   /* ---- Shape ----------------------------------------------------------- */

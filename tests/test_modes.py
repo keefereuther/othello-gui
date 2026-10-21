@@ -1,90 +1,12 @@
 """Coach, endgame puzzles and timed play, driven with a scripted fake engine."""
 
-import asyncio
 import random
-import re
-import struct
-from pathlib import Path
 
 import pytest
+from fakes import FakeEdax, make_session, settle
 
 from othello_gui import board as B
-from othello_gui.engine import Hint
-from othello_gui.session import EDAX, HUMAN, GameSession
-from othello_gui.wthor import ThorDatabase
-
-
-def ggf_position(ggf: str) -> B.Position:
-    m = re.search(r"BO\[8 (\S{64}) ([*O])\]", ggf)
-    pos = B.Position(B.from_edax(m.group(1)), B.BLACK if m.group(2) == "*" else B.WHITE)
-    for mv in re.findall(r"\b[BW]\[([^\]]+)\]", ggf):
-        pos = pos.play(B.parse_sq(mv))
-    return pos
-
-
-class FakeEdax:
-    """Answers `hint 1` from a table keyed by board string: {board: (move, score)}.
-    Unknown boards get (first legal move, 0). `go` plays the table move or the first legal."""
-
-    def __init__(self, exe="fake", threads=1, book_randomness=0, move_time=None):
-        self.exe, self.threads, self.book_randomness, self.move_time = exe, threads, book_randomness, move_time
-        self.name, self.level, self.running = "Fake", None, False
-        self.table: dict[str, tuple[int, float]] = {}
-        self.pos = B.Position()
-        self.calls: list[str] = []
-
-    async def start(self):
-        self.running = True
-
-    async def quit(self):
-        self.running = False
-
-    async def set_level(self, level):
-        self.level = level
-
-    async def set_game(self, ggf):
-        self.pos = ggf_position(ggf)
-        self.calls.append("set_game")
-
-    def _answer(self):
-        if self.pos.board in self.table:
-            return self.table[self.pos.board]
-        legal = self.pos.legal()
-        return (legal[0] if legal else B.PASS), 0.0
-
-    async def hint(self, n, progress=None):
-        self.calls.append(f"hint {n}")
-        move, score = self._answer()
-        return [Hint(move, score, self.level or 1, [move])]
-
-    async def go(self, progress=None):
-        self.calls.append("go")
-        move, score = self._answer()
-        from othello_gui.engine import EngineMove
-        return EngineMove(move, score, 0.0)
-
-
-async def settle(session: GameSession):
-    """Wait for the worker to finish whatever it is doing."""
-    for _ in range(200):
-        await asyncio.sleep(0.005)
-        if session._worker is None or session._worker.done():
-            return
-    raise TimeoutError("worker did not settle")
-
-
-def make_session(engine=None):
-    engine = engine or FakeEdax()
-    engine.running = True
-    messages = []
-
-    async def broadcast(msg):
-        messages.append(msg)
-
-    s = GameSession(engine, broadcast)
-    s.hints_enabled = False
-    return s, engine, messages
-
+from othello_gui.session import EDAX, HUMAN
 
 # ----------------------------------------------------------------- coach
 
@@ -142,20 +64,6 @@ async def test_coach_off_never_reviews():
 
 # ----------------------------------------------------------------- puzzles
 
-def _thor_db(tmp_path: Path, transcripts: list[str]) -> ThorDatabase:
-    recs = b""
-    for text in transcripts:
-        moves = [(sq // 8 + 1) * 10 + (sq % 8 + 1) for sq in B.parse_transcript(text)]
-        recs += struct.pack("<HHHBB60s", 0, 1, 2, 33, 33, bytes(moves).ljust(60, b"\0"))
-    hdr = struct.pack("<BBBBIHHBBBB", 20, 26, 1, 1, len(transcripts), 0, 2024, 8, 0, 24, 0)
-    (tmp_path / "WTH_2024.wtb").write_bytes(hdr + recs)
-    jou = struct.pack("<BBBBIHHBBBB", 20, 26, 1, 1, 0, 3, 0, 0, 0, 0, 0)
-    (tmp_path / "WTHOR.JOU").write_bytes(jou + b"".join(n.ljust(20, b"\0") for n in (b"???", b"Alice", b"Bob")))
-    trn = struct.pack("<BBBBIHHBBBB", 20, 26, 1, 1, 0, 1, 0, 0, 0, 0, 0)
-    (tmp_path / "WTHOR.TRN").write_bytes(trn + b"Test Open".ljust(26, b"\0"))
-    return ThorDatabase(tmp_path)
-
-
 def _random_full_game(seed: int) -> str:
     rng = random.Random(seed)
     pos, moves = B.Position(), []
@@ -170,9 +78,9 @@ def _random_full_game(seed: int) -> str:
     return B.transcript(moves)
 
 
-async def test_puzzle_solved_and_missed(tmp_path: Path):
+async def test_puzzle_solved_and_missed(make_wthor):
     s, e, _ = make_session()
-    s.thor = _thor_db(tmp_path, [_random_full_game(3), _random_full_game(4)])
+    s.thor = make_wthor([(_random_full_game(3), 33), (_random_full_game(4), 33)])
     s.level = 6
 
     await s.start_puzzle(12)

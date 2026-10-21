@@ -114,7 +114,9 @@ class ThorDatabase:
                 candidates = range(len(self.records))
         return self.game(rng.choice(candidates))
 
-    def random_opening(self, plies: int, rng: random.Random | None = None, min_year: int | None = None) -> tuple[ThorGame, list[int]]:
+    def random_opening(
+        self, plies: int, rng: random.Random | None = None, min_year: int | None = None
+    ) -> tuple[ThorGame, list[int]]:
         """A random game and its first `plies` moves, verified legal."""
         for _ in range(50):
             game = self.random_game(rng, min_year)

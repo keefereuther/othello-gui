@@ -16,11 +16,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import re
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from . import board as B
-from . import openings
+from . import concepts, openings
 from .engine import Edax, EdaxError, Hint
 from .thor_index import Filters, ThorIndex
 from .wthor import ThorDatabase
@@ -88,6 +90,8 @@ class GameSession:
         self.coach_enabled = False
         self.coach_threshold = 4  # discs lost that make the coach pause the game
         self.coach_alert: dict[str, Any] | None = None  # set while the coach is waiting for you
+        self.review_level: int | None = None  # level the coach judges moves at (None: the play level)
+        self.trainer: Any = None  # training.Trainer, attached by the server
         self.puzzle: dict[str, Any] | None = None  # endgame puzzle in progress
         self.hints_enabled = True
         self.hint_count = 4
@@ -153,6 +157,7 @@ class GameSession:
             "analysis": asdict(self.analysis),
             "opening": self.opening,
             "thor_games": len(self.thor) if self.thor else 0,
+            "training": self.trainer.to_json() if self.trainer else None,
             "transcript": B.transcript([m.sq for m in self.moves]),
         }
 
@@ -163,7 +168,7 @@ class GameSession:
             table = openings.table()
         except Exception:  # missing/corrupt table: names are optional
             return out
-        for rec, js in zip(self.moves, out):
+        for rec, js in zip(self.moves, out, strict=True):
             hit = table.lookup(rec.position) if rec.sq != B.PASS else None
             js["opening"] = hit.name if hit else None
         return out
@@ -181,7 +186,9 @@ class GameSession:
         for i in range(len(positions) - 1, 0, -1):
             hit = table.lookup(positions[i])
             if hit:
-                return {"name": hit.name, "aliases": list(hit.aliases), "moves": hit.moves, "since": len(positions) - 1 - i}
+                return {
+                    "name": hit.name, "aliases": list(hit.aliases), "moves": hit.moves, "since": len(positions) - 1 - i,
+                }
         return None
 
     def hints_message(self) -> dict[str, Any]:
@@ -209,6 +216,7 @@ class GameSession:
     ) -> None:
         """Start a game. `opening` may be {"type": "thor", "plies": 8, "min_year": 2000}
         to begin from the first moves of a random tournament game."""
+        self._training_reset()
         moves: list[int] = []
         self.opening = None
         if opening and opening.get("type") == "thor" and int(opening.get("plies", 0)) > 0:
@@ -224,11 +232,7 @@ class GameSession:
         self.players = {B.BLACK: black, B.WHITE: white}
         if level:
             self.level = int(level)
-        self.best_scores = {}
-        self.analysis = Analysis()
-        self.coach_alert = None
-        self.puzzle = None
-        self._clear_hints()
+        self._reset_game_state()
         await self.touch()
 
     def _set_moves(self, start: B.Position, moves: list[int]) -> None:
@@ -250,12 +254,16 @@ class GameSession:
             raise ValueError(f"{B.sq_name(sq)} is not a legal move")
         if self.puzzle and self.puzzle["status"] == "solving":
             raise ValueError("one moment, Edax is still solving the puzzle")
+        if self.trainer:
+            self.trainer.before_user_move()
         self.coach_alert = None
         if not self.at_tip:
             # playing a new move while reviewing truncates the future
             del self.moves[self.cursor :]
             self.best_scores = {k: v for k, v in self.best_scores.items() if k <= self.cursor}
         self._append(sq)
+        if self.trainer:
+            self.trainer.after_user_move(pos, sq)
         await self.touch()
 
     async def undo(self) -> None:
@@ -315,6 +323,7 @@ class GameSession:
     async def start_puzzle(self, empties: int = 12) -> None:
         """Cut a random tournament game at `empties` empty squares, let Edax solve it
         exactly, and ask the player for the best move."""
+        self._training_reset()
         if not self.thor:
             raise ValueError("endgame puzzles need the Thor database (see the Thor card)")
         empties = max(6, min(20, int(empties)))
@@ -327,7 +336,12 @@ class GameSession:
             except ValueError:
                 continue
             for p in positions:
-                if p.board.count(B.EMPTY) == empties and not p.is_terminal() and not p.must_pass() and len(p.legal()) >= 2:
+                if (
+                    p.board.count(B.EMPTY) == empties
+                    and not p.is_terminal()
+                    and not p.must_pass()
+                    and len(p.legal()) >= 2
+                ):
                     pos = p
                     break
             if pos is not None:
@@ -339,16 +353,15 @@ class GameSession:
         self.cursor = 0
         self.players = {pos.player: HUMAN, B.opponent(pos.player): EDAX}
         self.level = max(self.level, (empties + 1) // 2)  # enough for an exact solve
-        self.best_scores = {}
-        self.analysis = Analysis()
-        self.coach_alert = None
-        self._clear_hints()
+        self._reset_game_state()
         self.opening = {
             "black": game.black, "white": game.white, "tournament": game.tournament, "year": game.year,
             "result": game.result, "plies": len(game.moves), "puzzle": True, "empties": empties,
         }
-        self.puzzle = {"empties": empties, "to_move": pos.player, "status": "solving", "level": self.level,
-                       "best": None, "best_sq": None, "best_score": None, "played": None, "played_score": None, "loss": None}
+        self.puzzle = {
+            "empties": empties, "to_move": pos.player, "status": "solving", "level": self.level,
+            "best": None, "best_sq": None, "best_score": None, "played": None, "played_score": None, "loss": None,
+        }
         await self.touch()  # show the position while Edax solves it
         gen = self._gen
         async with self._engine_lock:
@@ -357,19 +370,17 @@ class GameSession:
             self.thinking = True
             self.status = "solving the puzzle"
             await self.broadcast(self.state())
-            if self.engine.level != self.level:
-                await self.engine.set_level(self.level)
-            await self.engine.set_game(B.ggf(self.start, []))
-            hints = await self.engine.hint(1, self._progress)
+            await self._sync_level()
+            best = await self._best_at(0)
         self.thinking = False
         self.status = "idle"
         if self._gen != gen or not self.puzzle:
             return
-        if not hints:
+        if best is None:
             self.puzzle = None
             raise EdaxError("Edax could not solve the puzzle")
-        self.best_scores[0] = (hints[0].move, hints[0].score)
-        self.puzzle.update(status="ask", best=B.sq_name(hints[0].move), best_sq=hints[0].move, best_score=hints[0].score)
+        self.best_scores[0] = best
+        self.puzzle.update(status="ask", best=B.sq_name(best[0]), best_sq=best[0], best_score=best[1])
         await self.touch()
 
     async def close(self) -> None:
@@ -393,17 +404,14 @@ class GameSession:
 
     async def load_transcript(self, text: str) -> None:
         """Load a game from a move list (F5d6C3...) or a GGF string."""
+        self._training_reset()
         moves = B.parse_transcript(_strip_ggf(text))
         if not moves:
             raise ValueError("no moves found in the transcript")
         self._set_moves(B.Position(), moves)
         self.opening = None
         self.players = {B.BLACK: HUMAN, B.WHITE: HUMAN}  # review mode: nobody auto-plays
-        self.best_scores = {}
-        self.analysis = Analysis()
-        self.coach_alert = None
-        self.puzzle = None
-        self._clear_hints()
+        self._reset_game_state()
         await self.touch()
 
     # ------------------------------------------------------------------ Thor database
@@ -414,7 +422,8 @@ class GameSession:
         if self.thor is None:
             return {**msg, "ready": False, "available": False, "error": "Thor database not found"}
         if self.thor_index is None:
-            return {**msg, "ready": False, "available": True, "progress": round(self.thor_progress, 3), "error": self.thor_error}
+            progress = round(self.thor_progress, 3)
+            return {**msg, "ready": False, "available": True, "progress": progress, "error": self.thor_error}
         pos = self.current
         result = self.thor_index.lookup(pos.board, pos.player, self.thor_filters)
         return {**msg, "ready": True, "available": True, "board": pos.board, "to_move": pos.player, **result}
@@ -432,6 +441,7 @@ class GameSession:
     async def load_thor_game(self, index: int) -> None:
         """Load a tournament game for review. If it passes through the position on the
         board, it is shown in the same orientation with the cursor on that position."""
+        self._training_reset()
         if self.thor is None or self.thor_index is None:
             raise ValueError("the Thor database is not ready yet")
         index = int(index)
@@ -448,11 +458,7 @@ class GameSession:
             "year": game.year, "result": game.result, "plies": len(moves), "full": True, "index": index,
         }
         self.players = {B.BLACK: HUMAN, B.WHITE: HUMAN}  # review mode: nobody auto-plays
-        self.best_scores = {}
-        self.analysis = Analysis()
-        self.coach_alert = None
-        self.puzzle = None
-        self._clear_hints()
+        self._reset_game_state()
         await self.touch()
         await self.thor_lookup()
 
@@ -475,11 +481,9 @@ class GameSession:
                 for i in todo:
                     if self._gen != gen:
                         break  # game changed under us; stop quietly
-                    ggf = B.ggf(self.start, [m.sq for m in self.moves[:i]])
-                    await self.engine.set_game(ggf)
-                    hints = await self.engine.hint(1)
-                    if hints:
-                        self.best_scores[i] = (hints[0].move, hints[0].score)
+                    best = await self._best_at(i)
+                    if best is not None:
+                        self.best_scores[i] = best
                     self.analysis.done += 1
                     self._apply_analysis()
                     await self.broadcast(self.state())
@@ -525,6 +529,7 @@ class GameSession:
     async def touch(self) -> None:
         """State changed: notify clients and (re)start the worker."""
         self._gen += 1
+        await self._check_game_over()
         await self.broadcast(self.state())
         if self.hints_cursor is not None and self.hints_cursor != self.cursor:
             self._clear_hints()
@@ -573,6 +578,7 @@ class GameSession:
             and self._hints_gen != self._gen
             and not self.analysis.running
             and not (self.puzzle and self.puzzle["status"] in ("solving", "ask") and self.at_tip)
+            and not (self.trainer and self.trainer.hides_hints())
             and (self.players[pos.player] == HUMAN or not self.at_tip)
         )
 
@@ -610,7 +616,9 @@ class GameSession:
         if pe is None or not pe.running or pe.move_time != self.move_time:
             if pe is not None:
                 await pe.quit()
-            pe = self.engine_factory(self.engine.exe, self.engine.threads, self.engine.book_randomness, move_time=self.move_time)
+            pe = self.engine_factory(
+                self.engine.exe, self.engine.threads, self.engine.book_randomness, move_time=self.move_time
+            )
             await pe.start()
             await pe.set_level(60)  # the clock, not the level, ends the search
             self._play_engine = pe
@@ -631,18 +639,20 @@ class GameSession:
             self.thinking = True
             self.status = "checking your move"
             await self.broadcast(self.state())
-            if self.engine.level != self.level:
-                await self.engine.set_level(self.level)
-            if i not in self.best_scores:
-                await self.engine.set_game(B.ggf(self.start, [m.sq for m in self.moves[:i]]))
-                hints = await self.engine.hint(1, self._progress)
-                if hints:
-                    self.best_scores[i] = (hints[0].move, hints[0].score)
-            if j < len(positions) and not positions[j].is_terminal() and j not in self.best_scores:
-                await self.engine.set_game(B.ggf(self.start, [m.sq for m in self.moves[:j]]))
-                hints = await self.engine.hint(1, self._progress)
-                if hints:
-                    self.best_scores[j] = (hints[0].move, hints[0].score)
+            if self.review_level:
+                if self.engine.level != self.review_level:
+                    await self.engine.set_level(self.review_level)
+            else:
+                await self._sync_level()
+            if i not in self.best_scores and (best := await self._best_at(i)) is not None:
+                self.best_scores[i] = best
+            if (
+                j < len(positions)
+                and not positions[j].is_terminal()
+                and j not in self.best_scores
+                and (best := await self._best_at(j)) is not None
+            ):
+                self.best_scores[j] = best
         self.thinking = False
         self.status = "idle"
         if self._gen != gen:
@@ -660,11 +670,15 @@ class GameSession:
                     played_score=played_score, loss=loss,
                 )
             elif self.coach_enabled and loss >= self.coach_threshold and best_move != rec.sq:
-                self.coach_alert = {
-                    "cursor": len(self.moves), "move": B.sq_name(rec.sq), "move_sq": rec.sq,
-                    "best": B.sq_name(best_move), "best_sq": best_move, "loss": loss,
-                    "best_score": best_score, "played_score": played_score,
-                }
+                before = positions[i]
+                why = concepts.compare(before, rec.sq, best_move)
+                pause = self.trainer.on_mistake(before, rec.sq, best_move, loss, why) if self.trainer else True
+                if pause:
+                    self.coach_alert = {
+                        "cursor": len(self.moves), "move": B.sq_name(rec.sq), "move_sq": rec.sq,
+                        "best": B.sq_name(best_move), "best_sq": best_move, "loss": loss,
+                        "best_score": best_score, "played_score": played_score, "why": why,
+                    }
         self._gen += 1
         await self.broadcast(self.state())
 
@@ -678,9 +692,9 @@ class GameSession:
             self.thinking = True
             self.status = f"{engine.name} is thinking" + (f" ({engine.move_time:g} s)" if engine.move_time else "")
             await self.broadcast(self.state())
-            if engine is self.engine and self.engine.level != self.level:
-                await self.engine.set_level(self.level)
-            await engine.set_game(B.ggf(self.start, [m.sq for m in self.moves[:cursor]]))
+            if engine is self.engine:
+                await self._sync_level()
+            await engine.set_game(self._ggf_upto(cursor))
             if varied:
                 move, score = await self._varied_move()
             else:
@@ -697,6 +711,7 @@ class GameSession:
         rec.eval_black = (score if rec.player == B.BLACK else -score) + 0.0  # no -0.0
         rec.eval_source = "engine"
         self._gen += 1
+        await self._check_game_over()
         await self.broadcast(self.state())
 
     async def _varied_move(self) -> tuple[int, float]:
@@ -721,9 +736,8 @@ class GameSession:
             self.thinking = True
             self.status = "computing hints"
             await self.broadcast(self.state())
-            if self.engine.level != self.level:
-                await self.engine.set_level(self.level)
-            await self.engine.set_game(B.ggf(self.start, [m.sq for m in self.moves[:cursor]]))
+            await self._sync_level()
+            await self.engine.set_game(self._ggf_upto(cursor))
             hints = await self.engine.hint(n, self._progress)
         self.thinking = False
         self.status = "idle"
@@ -754,9 +768,44 @@ class GameSession:
         self.cursor = len(self.moves)
         return rec
 
+    def _training_reset(self) -> None:
+        """The user started something else: let the trainer drop its drill or scrimmage."""
+        if self.trainer:
+            self.trainer.on_external_game()
+
+    async def _check_game_over(self) -> None:
+        if self.trainer and self.moves and self.at_tip and self.current.is_terminal():
+            await self.trainer.on_game_over()
+
     def _clear_hints(self) -> None:
         self.hints = []
         self.hints_cursor = None
+
+    def _reset_game_state(self) -> None:
+        """Forget everything derived from the previous game (evaluations, analysis,
+        coach / puzzle state, hints). Call after replacing `start` / `moves`."""
+        self.best_scores = {}
+        self.analysis = Analysis()
+        self.coach_alert = None
+        self.puzzle = None
+        self._clear_hints()
+
+    def _ggf_upto(self, n: int) -> str:
+        """The game as Edax's `set game` wants it, truncated to the first `n` moves."""
+        return B.ggf(self.start, [m.sq for m in self.moves[:n]])
+
+    async def _sync_level(self) -> None:
+        """Make sure the main engine searches at the session's level."""
+        if self.engine.level != self.level:
+            await self.engine.set_level(self.level)
+
+    async def _best_at(self, n: int) -> tuple[int, float] | None:
+        """Edax's best move and score after the first `n` moves (None if it has no move).
+        Must be called with `_engine_lock` held; the caller stores the result once it
+        has checked that the game did not change meanwhile."""
+        await self.engine.set_game(self._ggf_upto(n))
+        hints = await self.engine.hint(1, self._progress)
+        return (hints[0].move, hints[0].score) if hints else None
 
 
 def _move_between(a: B.Position, b: B.Position) -> int:
@@ -772,7 +821,5 @@ def _strip_ggf(text: str) -> str:
     """If `text` is a GGF record, keep only its move tags so that the board
     header (which also contains letters and digits) is not mistaken for moves."""
     if "(;" in text and "]" in text:
-        import re
-
         return " ".join(re.findall(r"\b[BW]\[([^\]]+)\]", text))
     return text

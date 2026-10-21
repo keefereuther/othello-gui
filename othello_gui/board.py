@@ -121,7 +121,7 @@ class Position:
     def is_terminal(self) -> bool:
         return not self.legal() and not legal_moves(self.board, opponent(self.player))
 
-    def play(self, sq: int) -> "Position":
+    def play(self, sq: int) -> Position:
         if sq == PASS:
             if self.legal():
                 raise ValueError("cannot pass when a legal move exists")

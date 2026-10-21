@@ -198,6 +198,19 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .card > .t-label:first-child { margin-bottom: var(--s1); }
 
+/* collapsible panels: click the title to hide a card's body; the choice is remembered */
+.card[data-panel] > .t-label { cursor: pointer; user-select: none; }
+.card[data-panel] > .t-label:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 4px; }
+.card-body { display: contents; }
+.card-toggle {
+  margin-left: auto; flex: none; width: 8px; height: 8px; margin-right: 3px;
+  border: solid var(--muted); border-width: 0 2px 2px 0;
+  transform: translateY(-3px) rotate(45deg); transition: transform var(--t-ui) var(--ease-out);
+}
+.card.collapsed > .t-label { margin-bottom: 0; }
+.card.collapsed .card-body { display: none; }
+.card.collapsed .card-toggle { transform: translateY(0) rotate(-45deg); }
+
 /* ---------- Buttons ------------------------------------------------------ */
 .btn {
   appearance: none; border: 0; cursor: pointer;
@@ -358,3 +371,53 @@ textarea.input { resize: vertical; font-family: ui-monospace, SFMono-Regular, Me
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ---------- Training ------------------------------------------------------ */
+.training { display: flex; flex-direction: column; gap: var(--s2); font-size: var(--fs-13); }
+.training h3 { margin: 0; font-size: var(--fs-15); font-weight: var(--fw-bold); }
+.training h4 { margin: var(--s2) 0 0; font-size: var(--fs-11); font-weight: var(--fw-semi); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--muted); }
+.training p { margin: 0; line-height: 1.5; }
+.training ul { margin: 0; padding-left: 1.2em; line-height: 1.5; }
+.train-part { font-size: var(--fs-11); font-weight: var(--fw-semi); letter-spacing: var(--track-label); text-transform: uppercase; color: var(--muted); margin-top: var(--s1); }
+.train-unit {
+  display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: var(--s2);
+  width: 100%; text-align: left; padding: 6px 8px; border-radius: var(--radius-sm);
+  background: none; border: 1px solid transparent; cursor: pointer;
+}
+.train-unit:hover:not(:disabled) { border-color: var(--line); background: var(--bg); }
+.train-unit:disabled { cursor: default; opacity: 0.5; }
+.train-unit .num { color: var(--muted); font-weight: var(--fw-semi); text-align: right; }
+.train-unit .ch { display: block; color: var(--muted); font-size: var(--fs-11); }
+.train-badge { font-size: var(--fs-11); font-weight: var(--fw-semi); color: var(--muted); white-space: nowrap; }
+.train-badge.done { color: var(--good); }
+.train-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s2); }
+.train-head .btn { white-space: nowrap; flex: none; }
+.train-steps { display: flex; gap: var(--s1); flex-wrap: wrap; }
+.train-step {
+  flex: 1; min-width: 0; padding: 6px 8px; border-radius: var(--radius-sm); border: 1px solid var(--line);
+  background: none; cursor: pointer; text-align: left; font-size: var(--fs-11); line-height: 1.3;
+}
+.train-step b { display: block; font-size: var(--fs-13); }
+.train-step.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.train-step.done b::after { content: " ✓"; color: var(--good); }
+.train-lesson { max-height: 340px; overflow: auto; display: flex; flex-direction: column; gap: var(--s2); padding-right: 4px; }
+.train-box { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--s2) var(--s3); display: flex; flex-direction: column; gap: var(--s2); }
+.train-box.right { border-left: 4px solid var(--good); }
+.train-box.half { border-left: 4px solid var(--hint-best); }
+.train-box.wrong { border-left: 4px solid var(--bad); }
+.train-choices { display: flex; flex-direction: column; gap: 4px; }
+.train-choices .btn { justify-content: flex-start; text-align: left; }
+.train-choices .btn.correct { box-shadow: inset 0 0 0 2px var(--good); }
+.train-choices .btn.chosen:not(.correct) { box-shadow: inset 0 0 0 2px var(--bad); }
+.train-meter { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.train-meter span { display: block; height: 100%; background: var(--good); }
+.train-ranking { color: var(--muted); }
+.train-mistake { cursor: pointer; padding: 4px 0; border-top: 1px solid var(--line); }
+.train-mistake b { color: var(--bad); }
+.train-mistake.related b { color: var(--bad); text-decoration: underline; }
+.coach-banner .coach-why { flex-basis: 100%; color: var(--muted); }
+
+/* board marks used by drills and examples */
+.square.mark-good { box-shadow: inset 0 0 0 3px var(--mark-good); }
+.square.mark-bad { box-shadow: inset 0 0 0 3px var(--mark-bad); }
+.square.mark-focus { box-shadow: inset 0 0 0 3px var(--mark-focus); }

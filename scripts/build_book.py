@@ -1,4 +1,4 @@
-"""Build an Edax opening book from WTHOR tournament games.
+"""Build an Edax opening book from WTHOR tournament games (macOS / Linux; uses a pty).
 
     uv run scripts/build_book.py --years 2023-2025 --level 10
 
@@ -15,18 +15,18 @@ EDAX_BOOK_RANDOMNESS (or use the Variety option) to make Edax vary its play.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
-import re
 import pty
+import re
 import select
 import shutil
 import sys
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_EDAX = ROOT.parent / "edax-reversi" / "bin" / "mEdax"
-DEFAULT_WTHOR = ROOT.parent / "wthor"
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # make othello_gui importable
+from othello_gui.paths import find_edax, find_wthor  # noqa: E402
 
 
 class EdaxText:
@@ -72,10 +72,8 @@ class EdaxText:
 
     def close(self) -> None:
         """Quit Edax and wait for it to exit (it saves the book on quit)."""
-        try:
+        with contextlib.suppress(OSError):
             os.write(self.fd, b"quit\n")
-        except OSError:
-            pass
         for _ in range(600):  # up to 60 s
             try:
                 pid, _status = os.waitpid(self.pid, os.WNOHANG)
@@ -84,10 +82,8 @@ class EdaxText:
             if pid:
                 return
             self.read(0.1)
-        try:
+        with contextlib.suppress(OSError):
             os.kill(self.pid, 9)
-        except OSError:
-            pass
 
 
 def parse_years(spec: str) -> list[int]:
@@ -107,8 +103,8 @@ def main() -> None:
     ap.add_argument("--level", type=int, default=10, help="Edax level used to evaluate book positions")
     ap.add_argument("--depth", type=int, default=24, help="add positions up to this many plies into the game")
     ap.add_argument("--threads", type=int, default=max(1, (os.cpu_count() or 2) - 1))
-    ap.add_argument("--edax", type=Path, default=Path(os.environ.get("EDAX_BIN", DEFAULT_EDAX)))
-    ap.add_argument("--wthor", type=Path, default=Path(os.environ.get("WTHOR_DIR", DEFAULT_WTHOR)))
+    ap.add_argument("--edax", type=Path, default=find_edax(), help="Edax executable (default: the one the GUI uses)")
+    ap.add_argument("--wthor", type=Path, default=find_wthor(), help="folder with the WTH_*.wtb files")
     ap.add_argument("--out", type=Path, default=None, help="book file (default: Edax's data/book.dat)")
     ap.add_argument("--merge", action="store_true", help="add to the existing book instead of starting fresh")
     args = ap.parse_args()
